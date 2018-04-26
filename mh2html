@@ -1,0 +1,192 @@
+#!/usr/bin/perl
+#
+# mh2html.pl
+#
+# Convert raw mh-mail message files into something like html
+#
+# Usage:  mh2html.pl ~/Mail/inbox/79 [ophtml] 
+#   converts message 79 from the inbox into an html-formatted file.
+#   written to [ophtml] or stdout if none specified
+#
+# dpwe@media.mit.edu 1994nov28
+# $Header: /var/www/AUDITORY/scripts/RCS/mh2html,v 1.1 2006/02/05 16:01:31 dpwe Exp dpwe $
+
+#require 'headfoot.pl';
+####################
+# headfoot.pl
+#
+# Definition of 'header' and 'footer' subroutines for use in 
+# perl functions that generate html pages on the fly
+#
+# dpwe@media.mit.edu 1995jan10  Extracted from parsesos1.perl
+
+sub header    # write the header, specify page title
+{
+    local($title,$icon,$isindex,$omitcontenttype,$file)=@_;
+
+    if( $file eq "") {
+        $file = STDOUT;
+    }
+
+    if( ($omitcontenttype eq "") )  {
+        print "Content-type: text/html\n\n";
+    }
+    print "<HTML>\n<HEAD>\n<meta name=viewport content=\"width=device-width, initial-scale=1\">\n<TITLE>$title</TITLE>\n";
+    if(! ($isindex eq "") )  {
+      print "<ISINDEX>\n";
+    }
+    print "</HEAD>\n";
+    print "<BODY>\n<H1>";
+    if(! ($icon eq "") )  {
+      print "<IMG SRC=\"$icon\" align=middle> ";
+    }
+    print "$title</H1>\n<HR>\n";
+}
+
+sub footer    # finish off the page
+{
+    print "<HR>\n<ADDRESS>\n<A HREF=\"http://www.ee.columbia.edu/~dpwe/\">\n";
+    print "DAn Ellis &lt;dpwe\@ee.columbia.edu&gt; </A><BR>\n";
+    print "Columbia University Electrical Engineering\n</ADDRESS>\n</BODY>\n</HTML>\n";
+}
+
+####################
+
+sub mhfooter    # finish off the page - special version for mh
+{
+    local($arch) = @_;
+    print "<HR><FONT SIZE=-1>\n";
+    print "This message came from the mail archive<br>\n";
+    print "<A HREF=$arch>$arch</A><br>\n";
+    print "maintained by:\n";
+    print "<ADDRESS>\n<A HREF=\"http://www.ee.columbia.edu/~dpwe/\">\n";
+    print "DAn Ellis &lt;dpwe\@ee.columbia.edu&gt; </A><BR>\n";
+    print "Electrical Engineering Dept., Columbia University\n</ADDRESS></FONT>\n</BODY>\n</HTML>\n";
+}
+
+$nargs = ($#ARGV)+1;   # $#ARGV is the largest usable index for ARGV
+# print $nargs, "\n";
+
+if($nargs<1)  {
+    print STDERR "Usage: mh2html.pl mh-message file [ophtmlfile]\n";
+    exit(1);
+}
+
+#print STDERR "$ARGV[0]\n";
+
+# construct stem of input file
+($archive=$ARGV[0]) =~ s|/[^/]*$||;
+# fixup well-known prefixes
+$server="www.auditory.org";
+#$archive =~ s|/([^/]*)/http/|http://sound.media.mit.edu/dpwe-bin/mhindex.cgi/|;
+#$archive =~ s|/([^/]*)/u/([^/]*)/public_html/|http://sound.media.mit.edu/dpwe-bin/mhindex.cgi/~\1/|;
+#$archive =~ s|/([^/]*)/http/|http://sound.media.mit.edu/|;
+$archive =~ s|/proj/advent1/packages/WWW/htdocs/AUDITORY/(.*)|http://$server/\1/|;
+$archive =~ s|/homes/([^/]*)/public_html/|http://$server/~\1/|;
+# As a special case, collapse [~]dpwe/AUDITORY to just AUDITORY
+$archive =~ s|~dpwe/AUDITORY|AUDITORY|;
+$archive =~ s|people/dpwe/AUDITORY|AUDITORY|;
+
+# 2002-05-12: src/postings becomes postings
+$archive =~ s|/src/postings/|/postings/|;
+
+
+# Fixup IPFNAME
+$ipfname = $ARGV[0];
+# Double AUDITORY gets inserted by virtual host translation
+$ipfname =~ s|AUDITORY/AUDITORY|AUDITORY|;
+
+if ($ipfname =~ s|/proj/eedept1/WWW/lib-ee/ee|/homes/dpwe/public_html/AUDITORY|) {
+    # Fix up weird name that comes from accessing via www.ee../~dpwe/AUDITORY
+    $archive =~ s|/proj/eedept1/WWW/lib-ee/ee|/~dpwe/AUDITORY|;
+} else {
+    # Remove AUDITORY from archive name (not needed with www.auditory.org)
+    $archive =~ s|AUDITORY/||;
+}
+
+#print STDERR "archive=$archive $ARGV[0] -> $ipfname";
+
+# Open input file
+$IPFILE = IPFILE;
+unless(open($IPFILE, "<$ipfname"))  {
+    print STDERR "Cannot read $ipfname\n";
+    exit(1);
+}
+
+# Open output file, or stdout
+if($nargs<2)  {
+    $OPFILE = STDOUT;
+} else {
+    $OPFILE = OPFILE;
+    unless(open(OPFILE, ">$ARGV[1]"))  {
+
+       print STDERR "Cannot create $ARGV[1]\n";
+       exit(1);
+    }
+}
+
+$url = "";
+# Parse header portion of input message - up to first empty line.
+# Grab "From:", "Date:" and "Subject:" lines
+$headerdone = 0;
+while(!$headerdone)  {
+    $_=<$IPFILE>;
+    chop($_);
+    # Map "@" chr to hide email addresses
+#    s/@/(at)/
+    s/@([A-z0-9\.\-_]*)/\@xxxxxxxx/g;
+#    print STDERR "**".$_."||\n";
+    if($_ eq "")            { $headerdone = 1; }
+    if(/^From: *(.*)/)  { $from = $1;      }
+    if(/^Date: *(.*)/)  { $date = $1;      }
+    if(/^Subject: *(.*)/)  { $subject = $1;      }
+    if(/http:\/\//)     { $url = $_; }
+}
+
+# Parse up the name field
+$_=$from;
+block: {
+    if(/(.*) *"(.*)" *(.*)/)   { $name=$2; $email=$1.$3; };
+    if(/(.*) *\((.*)\) *(.*)/) { $name=$2; $email=$1.$3; };
+    if(/(.*) *\<(.*)\> *(.*)/) { $email=$2; $name=$1.$3; };
+    if(/([-A-z0-9._]*\@[-A-z0-9._]*)/)   { $email=$1; };
+}
+if($email eq "")  { $email = $from; }
+if($name  eq "")  { $name  = $email; }
+
+# OK, generate header, copy body
+
+&header("$subject ($name)", "", "", 1, $OPFILE);
+
+print $OPFILE "<tt><pre>\n";
+
+print $OPFILE "Subject: <b>$subject</b>\n";
+print $OPFILE "From:    <b>$name &lt;$email&gt;</b>\n";
+print $OPFILE "Date:    <b>$date</b>\n";
+
+if(!($url eq ""))  {
+    $_ = $url;
+    m/^([^ \t]*)[ \t]*(.*)(http:\/\/[^ \t>"]*)(.*)/;
+    $nspc = 9-length($1);
+    $spc = substr("          ",0,($nspc<0)?0:$nspc);
+    print $OPFILE "$1$spc$2<a href=$3>$3</a>$4\n";
+}
+print $OPFILE "<p>\n";
+
+while(<$IPFILE>)  {
+    # convert special characters
+    s/&/&amp;/g;
+    s/</&lt;/g;
+    s/>/&gt;/g;
+#    s/@/(at)/
+    s/@([A-z0-9\.\-_]*)/\@xxxxxxxx/g;
+    # convert embedded web addresses to hotlinks
+    if(/^(.*)(http:\/\/[^ \t>"]*)(.*)\n/)  {
+	print $OPFILE "$1<a href=$2>$2</a>$3\n";
+    } else {
+	print $OPFILE $_;
+    }
+}
+
+print "</pre></tt>\n";
+&mhfooter($archive."/");

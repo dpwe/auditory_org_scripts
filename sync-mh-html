@@ -1,0 +1,61 @@
+#!/usr/bin/tclsh
+# -*- Tcl -*-
+#
+# sync-mh-html
+#
+# Copy an MH directory to an HTML-ized image.
+# 2002-05-14 dpwe@ee.columbia.edu
+# for AUDITORY list archive
+# $Header: /homes/dpwe/public_html/AUDITORY/scripts/RCS/sync-mh-html,v 1.2 2006/02/05 16:02:07 dpwe Exp $
+
+if {[llength $argv] < 2} {
+   puts stderr "Usage: $argv0 sourcemhdir desthtmldir"
+   exit 1
+}
+
+set srcdir [lindex $argv 0]
+set dstdir [lindex $argv 1]
+
+set bindir [file dirname [info script]]
+
+set origwd [pwd]
+
+if {$bindir == "."} {
+    set bindir $origwd
+}
+
+
+cd $srcdir
+set srcmsgs [glob -nocomplain *]
+
+cd $origwd
+
+if {![file exist $dstdir]} {
+    # A new year? (2003-01-01)
+    puts stderr "Creating $dstdir..."
+    exec mkdir $dstdir
+    # .. and if it fails, it fails
+}
+
+cd $dstdir
+set dstmsgs [glob -nocomplain *]
+
+set needed $srcmsgs
+
+foreach msgfull $dstmsgs {
+    set msg [file root $msgfull]
+    set ix [lsearch -exact $needed $msg]
+    if {$ix < 0} {
+	puts stderr "  $msg not found in $srcdir"
+    } else {
+	set needed [lreplace $needed $ix $ix]
+    }
+}
+
+# $needed is the msgs in src but not in dst
+
+cd $origwd
+foreach msg $needed {
+  puts stderr "Converting $msg..."
+  exec $bindir/mh2html $srcdir/$msg > $dstdir/$msg.html
+}

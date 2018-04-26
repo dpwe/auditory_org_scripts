@@ -1,0 +1,166 @@
+#!/bin/sh
+#
+# ~/public_html/AUDITORY/postings/update
+# Script to automatically update the AUDITORY mh posting archives
+# from the media-lab mail archive spool.
+#
+# dpwe@media.mit.edu 1996feb02
+# $Header: /homes/dpwe/public_html/AUDITORY/scripts/RCS/update,v 1.5 2002/05/14 23:54:20 dpwe Exp dpwe $
+
+# 2016-12-18: To get this working on a new Ubuntu 14.04 install, 
+# I had to apt-get intall nmh mhonarc
+
+if [ $# -ne 1 ]; then
+#  echo "usage: $0 YEAR"
+#  echo " where YEAR is a pre-existing directory name "
+#  echo " to which the new messages will be appended (e.g. "1996")."
+#  exit 1
+  YEAR=`/bin/date +%Y`
+else
+  YEAR=$1
+fi
+
+# Where to find binaries
+#BINDIR=/usr/local/bin
+BINDIR=/usr/bin
+#SCRIPTDIR=$HOME/public_html/AUDITORY/scripts
+AUDHOME=/var/www/html/AUDITORY
+SCRIPTDIR=$AUDHOME/scripts
+AUDITORY=$AUDHOME
+
+# Source of archive spool
+#ARCHIVE=/mas/doc/mail/archive/auditory-archive
+#ARCHIVE=/homes/dpwe/AUDITORY/auditory-archive
+#ARCHIVE=/homes/dpwe/mailtmp/auditory-archive
+# 2008-09-10: fetch mail with scp
+#ARCHIVEHOST=islay
+#ARCHIVE=/var/spool/mail/auditory-archive
+ARCHIVE=/mail/auditory-archive
+# tmp file to use
+TMPARC=/tmp/auditory-archive
+# where to accumulate the spools
+CUMSPOOL=$AUDITORY/postings-$YEAR
+# Where are the posting archives? (and me, most likely)
+#AUDHOME=$HOME/public_html/AUDITORY
+POSTDIR=$AUDHOME/postings
+POSTSRCDIR=$AUDHOME/src/postings
+
+rm -f $TMPARC
+
+## Strip off any blank lines at the top of the file
+#$BINDIR/perl -ne 'if($txt || m/^.+$/) {$txt=1; print;};' < $ARCHIVE > $TMPARC
+## zero the old one
+##rm $ARCHIVE
+##touch $ARCHIVE
+## not allowed to rm there, try this
+#ZERODUMMY=dummy.empty
+ZERODUMMY=/dev/null
+#rm -f $ZERODUMMY
+#touch $ZERODUMMY
+#cp $ZERODUMMY $ARCHIVE
+#rm -f $ZERODUMMY
+cp $ARCHIVE $TMPARC
+cp $ZERODUMMY $ARCHIVE
+
+## Set up authorization so can do remote copy automatically
+##SSHAGENTFILE=$HOME/.ssh-agent-`hostname -s`
+#SSHAGENTFILE=$HOME/.ssh-agent-`hostname`
+#SSH_AUTH_SOCK=`grep SSH_AUTH_SOCK $SSHAGENTFILE | awk '{print $3}' | sed -e "s/;//"`
+#export SSH_AUTH_SOCK
+#SSH_AGENT_PID=`grep SSH_AGENT_PID $SSHAGENTFILE | awk '{print $3}' | sed -e "s/;//"`
+#export SSH_AGENT_PID
+## Get the remote mail spool automatically
+#scp $ARCHIVEHOST:$ARCHIVE $TMPARC
+## .. and zero it out
+#ssh $ARCHIVEHOST "cp /dev/null $ARCHIVE"
+
+# Save in the cumulative message log
+cat $TMPARC >> $CUMSPOOL
+
+## 2008-10-10 now we are back to NFS-mounted mail spool
+#cat $ARCHIVE >> $CUMSPOOL
+
+# Incorporate the new messages
+$BINDIR/mh/inc +$POSTSRCDIR/$YEAR -file $TMPARC
+#$BINDIR/mh/inc +$POSTSRCDIR/$YEAR -file $ARCHIVE -truncate
+chmod -R a+r $POSTSRCDIR/$YEAR
+
+# Separate script HTML-izes any new msgs
+$SCRIPTDIR/sync-mh-html $POSTSRCDIR/$YEAR $POSTDIR/$YEAR
+
+echo "If the 'inc' reported a single field with an asterisk (i.e."
+echo "162+ Nov29*                   (57k) <<From owner-auditory@VM1.MCGILL.CA Wed"
+echo "there was a problem with the formatting of the spool file - you now"
+echo "have a messy cleanup to do:"
+echo "(1) Edit $TMPARC to fix the format problems, copy back to $ARCHIVE"
+echo "(2) Remove ALL the new messages reported in the inc lines"
+echo "(3) Strip the appended new messages from the end of $CUMSPOOL"
+echo "(4) Try again."
+echo ""
+echo "You should also check the new messages are accessible by visiting"
+echo "http://www.auditory.org/postings/$YEAR"
+echo ""
+
+# 2001-02-21
+# Now update the precalculated index for that year as well
+echo "Updating $YEAR/index.html..."
+cd $SCRIPTDIR
+./mhmail.perl $POSTSRCDIR/$YEAR postings/$YEAR > $POSTDIR/$YEAR/index.html
+ls -l $POSTDIR/$YEAR/index.html
+
+# 200-02-23
+# Also, copy across a new audindex.html if there is one
+#echo "Attempting to get new audindex.html..."
+#cd $AUDHOME
+#AUDINDEX=audindex.html
+#WGET=$HOME/alpha/bin/wget
+## Save current one
+#mv $AUDINDEX $AUDINDEX~
+#$WGET http://www.ctr.columbia.edu/~dpwe/$AUDINDEX
+#if [ ! -r $AUDINDEX ]; then
+#  # failed - restore the old one
+#  mv $AUDINDEX~ $AUDINDEX
+#fi
+#ls -l $AUDINDEX
+
+# No, rebuild it here
+$AUDITORY/memberdb/src/build-index.tcl $AUDHOME/audindex.html
+
+# Update parallel mhOnArc site
+cd $AUDHOME/mhonarc/$YEAR
+# save off pre-existing separated binaries, else they just keep mounting up
+#mv bin* save
+#mv jpg* save
+#mv doc* save
+#mv pdf* save
+#mv png* save
+#mv rtf* save
+#mv ppt* save
+
+# MHonArc 2.6.9+ use random names, so they would still accumulate rather than 
+# overwriting - just dump them.
+rm bin* 
+rm jpg*
+rm doc*
+rm pdf*
+rm png*
+rm rtf*
+rm ppt*
+rm pdf*
+rm pgp*
+rm gif*
+rm tif*
+rm wav*
+rm p7s*
+
+/usr/bin/mhonarc -spammode -title "AUDITORY posting archive $YEAR" -ttitle "AUDITORY posting archive $YEAR (threads)" ../../src/postings/$YEAR
+
+# 2016-12-18: Backup is currently covered by piglet2:/root/share/bin/backup-to-piglet1
+# Copy back to blush???  After stealing SSH creds?
+HOSTNAME=`hostname`
+. $HOME/.ssh-agent-$HOSTNAME
+rsync -avz --delete $AUDHOME/ hog:public_html/AUDITORY/
+
+
+exit 0
+
